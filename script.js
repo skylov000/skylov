@@ -1,3 +1,17 @@
+// === HEADPHONES OVERLAY ===
+function enterSite() {
+  const overlay = document.getElementById('headphones-overlay');
+  // Uruchomienie muzyki natychmiast po interakcji użytkownika
+  if (audio) {
+    audio.play().catch(err => console.log("Autoplay blocked or failed:", err));
+  }
+  overlay.style.transition = 'opacity 1s';
+  overlay.style.opacity = '0';
+  setTimeout(() => overlay.style.display = 'none', 1000);
+}
+
+
+
 // === AUDIO CONTROLS STATE ===
 let isPlaying = false;
 
@@ -58,12 +72,6 @@ if (playlistDropdown) {
   });
 }
 
-// === HEADPHONES OVERLAY ===
-function enterSite(event) {
-  if (event) event.preventDefault();
-  localStorage.setItem('skylovShouldAutoplay', 'true');
-  window.location.href = 'index.html';
-}
 
 // === CUSTOM CURSOR ===
 const cursor = document.getElementById('cursor');

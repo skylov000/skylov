@@ -122,6 +122,7 @@
   /* AUDIO PLAYER */
   #audio-bar {
     position: fixed;
+    bottom: 0; left: 0; right: 0;
     top: 100vh;
     top: 100dvh;
     left: 0; right: 0;
@@ -132,7 +133,7 @@
     border-top: 1px solid var(--neon-purple);
     display: flex;
     align-items: center;
-    padding: 0.6rem 2rem calc(0.6rem + env(safe-area-inset-bottom));
+    padding: 1.7rem 2rem calc(1.7rem + env(safe-area-inset-bottom));
     gap: 1rem;
     box-shadow: 0 -5px 30px rgba(179,71,255,0.3);
   }
@@ -145,7 +146,7 @@
   }
   .playlist-dropdown {
     position: absolute;
-    bottom: calc(100% + 1.1rem + 3px); /* Idealne wyrównanie do linii paska na desktopie */
+    bottom: calc(100% + 1.4rem + 6px); /* Idealne wyrównanie do linii paska na desktopie */
     left: 0;
     min-width: 280px;
     background: rgba(5, 0, 18, 0.95);
@@ -229,11 +230,11 @@
 
   @media (max-width: 768px) {
     #audio-bar {
-      padding: 0.45rem 1rem calc(0.45rem + env(safe-area-inset-bottom));
+      padding: 1.2rem 1.2rem calc(1.2rem + env(safe-area-inset-bottom));
       gap: 0.6rem;
     }
     #audio-bar .track-info {
-      font-size: 0.4rem;
+      font-size: 0.6rem;
       letter-spacing: 1px;
     }
     #audio-bar .vis-bars {
@@ -258,7 +259,7 @@
   /* Skalowanie listy i wyrównanie na urządzeniach mobilnych */
   @media (max-width: 768px) {
     .playlist-dropdown {
-      bottom: calc(100% + 1rem + 2px); 
+      bottom: calc(100% + 1.1rem + 3px); 
       transform: translateY(10px) scale(0.8);
       transform-origin: bottom left; /* Skalowanie względem lewego dolnego rogu */
     }
@@ -588,14 +589,9 @@
       transition: all 0.3s ease;
       display: block;
     }
-    .hamburger-menu.active span:nth-child(1) {
-      transform: rotate(45deg) translate(10px, 10px);
-    }
-    .hamburger-menu.active span:nth-child(2) {
-      opacity: 0;
-    }
-    .hamburger-menu.active span:nth-child(3) {
-      transform: rotate(-45deg) translate(7px, -7px);
+    .hamburger-menu.active span {
+      background: var(--neon-pink);
+      box-shadow: var(--glow-pink);
     }
   }
   .about-text p {
