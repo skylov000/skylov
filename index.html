@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Strona wejściowa portfolio SKYLOV. Załóż słuchawki, aby w pełni doświadczyć muzyki i efektów dźwiękowych przygotowanych przez producenta.">
+  <title>Uwaga!</title>
+  <link rel="shortcut icon" href="favicon.ico" type="image/x-icon">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/7.0.1/css/all.min.css" integrity="sha512-2SwdPD6INVrV/lHTZbO2nodKhrnDdJK9/kg2XD1r9uGqPo1cUbujc+IYdlYdEErWNu69gVcYgdxlmVmzTWnetw==" crossorigin="anonymous" referrerpolicy="no-referrer" />
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@300;400;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+  <style> 
+    body {
+    transition: opacity 0.5s ease;
+}
+
+.fade-out {
+    opacity: 0;
+}
+  </style>
+</head>
+<body>
+  <div class="cursor" id="cursor"></div>
+  <div class="cursor-trail" id="cursor-trail"></div>
+  <div id="headphones-overlay">
+    <div class="hp-icon"><i class="fa-solid fa-headphones"></i></div>
+    <h1>ZATRZYMAJ SIĘ NA CHWILĘ</h1>
+    <p>Ta strona zawiera muzykę i efekty dźwiękowe.<br>Dla najlepszego wrażenia — <strong>załóż słuchawki!</strong></p>
+    <a id="enter-btn" class="enter-btn" href="main.html"><i class="fa-solid fa-play"></i> WEJDŹ NA STRONĘ</a>
+  </div>
+  <script src="script.js" defer></script>
+  <script>
+    const btn = document.getElementById("enter-btn");
+
+btn.addEventListener("click", (event) => {
+    event.preventDefault();
+
+    document.body.classList.add("fade-out");
+
+    setTimeout(() => {
+        window.location.href = "main.html";
+    }, 500);
+});
+  </script>
+</body>
+</html>
