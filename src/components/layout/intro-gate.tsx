@@ -42,7 +42,21 @@ export function IntroGate() {
   );
 
   const percent = Math.round(progress * 100);
-  const unlocked = ready || bypassVisible;
+
+  /*
+   * Kiedy wolno wejść na stronę.
+   *
+   * Nie czekamy na ostatni bajt. Pierwsze sekundy materiału to zamrożona
+   * klatka, a zaraz po niej film idzie pod rozmyciem i pod typografią —
+   * zanim ktokolwiek dojedzie przewijaniem do ostrego kadru, reszta pliku
+   * zdąży dojść w tle. Trzymanie ludzi na ekranie ładowania do 100%
+   * oznaczało na wolnym łączu kilkadziesiąt sekund gapienia się w pasek.
+   *
+   * Zostaje jeszcze wyjście awaryjne po czasie — na wypadek łącza tak
+   * wolnego, że nie dowozi nawet tej jednej trzeciej.
+   */
+  const BUFFERED_ENOUGH = 0.34;
+  const unlocked = ready || bypassVisible || progress >= BUFFERED_ENOUGH;
 
   useEffect(() => {
     if (!visible) return;
@@ -91,11 +105,18 @@ export function IntroGate() {
           aria-labelledby="intro-title"
         >
           {/* Poświata w tle */}
+          {/*
+            Poświata pod logotypem. `intro-glow` zdejmuje rozmycie
+            w trybie oszczędnym — to pierwsza rzecz, jaką telefon musi
+            narysować, a rozmycie warstwy wielkości 110vmin potrafi
+            samo w sobie opóźnić pierwsze malowanie. Stopnie gradientu
+            są dobrane tak, żeby bez filtra wyglądał praktycznie tak samo.
+          */}
           <div
-            className="pointer-events-none absolute left-1/2 top-1/2 size-[110vmin] -translate-x-1/2 -translate-y-1/2 animate-aurora-drift rounded-full opacity-70 blur-3xl"
+            className="intro-glow pointer-events-none absolute left-1/2 top-1/2 size-[110vmin] -translate-x-1/2 -translate-y-1/2 animate-aurora-drift rounded-full opacity-70 blur-3xl"
             style={{
               background:
-                'radial-gradient(circle, rgba(179,71,255,0.28) 0%, rgba(255,45,247,0.14) 45%, transparent 70%)',
+                'radial-gradient(circle closest-side, rgba(179,71,255,0.28) 0%, rgba(210,60,255,0.19) 30%, rgba(255,45,247,0.10) 55%, rgba(255,45,247,0.03) 78%, transparent 100%)',
             }}
             aria-hidden="true"
           />

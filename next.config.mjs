@@ -21,6 +21,10 @@ const nextConfig = {
     optimizePackageImports: ['lucide-react', 'framer-motion'],
   },
 
+  // Nagłówek `X-Powered-By` to darmowy bajt na każdą odpowiedź i informacja
+  // o stosie, której nikt nie potrzebuje.
+  poweredByHeader: false,
+
   async headers() {
     return [
       {
@@ -29,6 +33,27 @@ const nextConfig = {
           { key: 'X-Content-Type-Options', value: 'nosniff' },
           { key: 'X-Frame-Options', value: 'SAMEORIGIN' },
           { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
+        ],
+      },
+      {
+        /*
+         * Media z `/public` domyślnie dostają `max-age=0, must-revalidate`,
+         * czyli przy KAŻDYM wejściu lecą osobne zapytania warunkowe —
+         * nawet jeśli plik się nie zmienił i odpowiedzią będzie samo 304.
+         * Na telefonie w słabym zasięgu każda taka podróż to ułamek
+         * sekundy czekania, a plików jest kilkanaście.
+         *
+         * Tydzień w pamięci podręcznej plus miesiąc na odświeżenie w tle
+         * sprawia, że druga wizyta nie dotyka sieci. Po podmianie pliku
+         * w `/public` starzy odwiedzający zobaczą nową wersję przy
+         * kolejnym wejściu — dlatego świadomie NIE ma tu `immutable`.
+         */
+        source: '/:dir(videos|audio|og|logo|icons)/:file*',
+        headers: [
+          {
+            key: 'Cache-Control',
+            value: 'public, max-age=604800, stale-while-revalidate=2592000',
+          },
         ],
       },
     ];

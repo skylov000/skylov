@@ -11,6 +11,7 @@ import {
   type Variants,
 } from 'framer-motion';
 
+import { usePerfProfile } from '@/hooks/use-perf-profile';
 import type { ScrollOffset } from '@/hooks/use-scroll-reveal';
 import { EASE_OUT_EXPO } from '@/lib/animations';
 import { cn } from '@/lib/utils';
@@ -83,10 +84,21 @@ export function AnimatedText({
   offset = DEFAULT_OFFSET,
 }: AnimatedTextProps) {
   const reduce = useReducedMotion();
+  const { lite } = usePerfProfile();
   const ref = useRef<HTMLSpanElement>(null);
 
   const lines = Array.isArray(text) ? text : [text];
   const label = lines.join(' ');
+
+  /*
+   * Na słabszym sprzęcie kaskada schodzi z poziomu słów na poziom linii.
+   *
+   * Ziarnistość jest tu jedynym pokrętłem kosztu: każdy fragment to
+   * własne okno przewijania i trzy przeliczane wartości. Nagłówek
+   * z ośmiu słów to dwadzieścia cztery wartości na klatkę — ten sam
+   * nagłówek jako dwie linie to sześć. Ruch pozostaje, znika mrowienie.
+   */
+  const effectiveMode: SplitMode = lite ? 'lines' : mode;
 
   const { scrollYProgress } = useScroll({ target: ref, offset });
   const progress = useSpring(scrollYProgress, {
@@ -111,7 +123,8 @@ export function AnimatedText({
 
   // Kaskada musi być wyraźna — przy dwóch słowach krok 0,06 sprawiał,
   // że oba wjeżdżały praktycznie razem i ruch był nie do zauważenia.
-  const step = stagger ?? (mode === 'chars' ? 0.035 : mode === 'words' ? 0.16 : 0.18);
+  const step =
+    stagger ?? (effectiveMode === 'chars' ? 0.035 : effectiveMode === 'words' ? 0.16 : 0.18);
 
   /* Wariant sterowany czasem — dla widoków, w których nie ma czego przewijać. */
   if (play !== undefined) {
@@ -134,13 +147,13 @@ export function AnimatedText({
         <span className="sr-only">{label}</span>
         {lines.map((line, lineIndex) => (
           <span key={lineIndex} className={cn('mask-line block', lineClassName)} aria-hidden="true">
-            {splitLine(line, mode).map((piece, pieceIndex) =>
+            {splitLine(line, effectiveMode).map((piece, pieceIndex) =>
               piece === ' ' ? (
                 <span key={pieceIndex}> </span>
               ) : (
                 <motion.span
                   key={pieceIndex}
-                  className={mode === 'lines' ? 'block' : 'inline-block'}
+                  className={effectiveMode === 'lines' ? 'block' : 'inline-block'}
                   variants={fragment}
                 >
                   {piece}
@@ -163,10 +176,10 @@ export function AnimatedText({
       {lines.map((line, lineIndex) => (
         <span
           key={lineIndex}
-          className={cn(mode === 'lines' ? 'mask-line block' : 'block', lineClassName)}
+          className={cn(effectiveMode === 'lines' ? 'mask-line block' : 'block', lineClassName)}
           aria-hidden="true"
         >
-          {splitLine(line, mode).map((piece, pieceIndex) => {
+          {splitLine(line, effectiveMode).map((piece, pieceIndex) => {
             // Spacja zostaje zwykłym tekstem, poza maską — wewnątrz
             // `inline-block` z `overflow: hidden` zostałaby usunięta.
             if (piece === ' ') {
@@ -180,8 +193,8 @@ export function AnimatedText({
                 progress={progress}
                 index={fragmentIndex}
                 step={step}
-                block={mode === 'lines'}
-                masked={mode !== 'lines'}
+                block={effectiveMode === 'lines'}
+                masked={effectiveMode !== 'lines'}
               >
                 {piece}
               </ScrubFragment>

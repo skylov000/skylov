@@ -27,8 +27,6 @@ interface AudioContextValue {
   hasEntered: boolean;
   volume: number;
   muted: boolean;
-  progress: number;
-  duration: number;
   /** Analyser Web Audio — null dopóki nie padnie gest użytkownika. */
   analyser: AnalyserNode | null;
   enter: (withSound: boolean) => void;
@@ -43,10 +41,33 @@ interface AudioContextValue {
 
 const AudioPlayerContext = createContext<AudioContextValue | null>(null);
 
+/**
+ * Pozycja w utworze mieszka w OSOBNYM kontekście — i to nie jest
+ * kosmetyka porządkowa.
+ *
+ * Zdarzenie `timeupdate` leci mniej więcej cztery razy na sekundę.
+ * Dopóki `progress` siedział w głównym kontekście, każde takie zdarzenie
+ * tworzyło nową wartość i przerenderowywało wszystkich odbiorców —
+ * w tym całą scenę hero z hasłami, przez cały czas grania muzyki.
+ * Teraz pozycję czyta wyłącznie pasek odtwarzacza, który i tak musi ją
+ * pokazać.
+ */
+interface AudioProgressValue {
+  progress: number;
+  duration: number;
+}
+
+const AudioProgressContext = createContext<AudioProgressValue>({ progress: 0, duration: 0 });
+
 export function useAudio() {
   const context = useContext(AudioPlayerContext);
   if (!context) throw new Error('useAudio must be used within <AudioProvider>');
   return context;
+}
+
+/** Pozycja i długość bieżącego utworu. Zmienia się kilka razy na sekundę. */
+export function useAudioProgress() {
+  return useContext(AudioProgressContext);
 }
 
 /**
@@ -327,8 +348,6 @@ export function AudioProvider({ children }: { children: React.ReactNode }) {
       hasEntered,
       volume,
       muted,
-      progress,
-      duration,
       analyser,
       enter,
       toggle,
@@ -345,8 +364,6 @@ export function AudioProvider({ children }: { children: React.ReactNode }) {
       hasEntered,
       volume,
       muted,
-      progress,
-      duration,
       analyser,
       enter,
       toggle,
@@ -359,5 +376,16 @@ export function AudioProvider({ children }: { children: React.ReactNode }) {
     ]
   );
 
-  return <AudioPlayerContext.Provider value={value}>{children}</AudioPlayerContext.Provider>;
+  const progressValue = useMemo<AudioProgressValue>(
+    () => ({ progress, duration }),
+    [progress, duration]
+  );
+
+  return (
+    <AudioPlayerContext.Provider value={value}>
+      <AudioProgressContext.Provider value={progressValue}>
+        {children}
+      </AudioProgressContext.Provider>
+    </AudioPlayerContext.Provider>
+  );
 }

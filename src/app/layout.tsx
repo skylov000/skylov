@@ -15,6 +15,7 @@ import { MotionProvider } from '@/components/providers/motion-provider';
 import { SmoothScroll } from '@/components/providers/smooth-scroll';
 import { JsonLd } from '@/components/shared/json-ld';
 import { site } from '@/content/content';
+import { PERF_PROBE_SCRIPT } from '@/lib/perf-profile';
 import { organizationSchema, websiteSchema } from '@/lib/seo';
 
 import './globals.css';
@@ -105,6 +106,18 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       className={`${inter.variable} ${spaceGrotesk.variable}`}
       suppressHydrationWarning
     >
+      <head>
+        {/*
+          Profil wydajnościowy urządzenia, liczony PRZED pierwszym
+          malowaniem. Ustawia `data-perf` i `data-video` na <html>, więc
+          CSS zdejmuje kosztowne efekty od razu — bez migotania „najpierw
+          bogato, potem oszczędnie" po hydratacji.
+
+          Skrypt jest blokujący i zajmuje ułamek milisekundy; wszystko,
+          czego dotyka, to dwa atrybuty i jedno pole na `window`.
+        */}
+        <script dangerouslySetInnerHTML={{ __html: PERF_PROBE_SCRIPT }} />
+      </head>
       <body className="relative min-h-screen bg-background text-foreground">
         <a href="#main" className="skip-link">
           Przejdź do treści

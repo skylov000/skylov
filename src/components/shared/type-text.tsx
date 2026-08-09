@@ -10,6 +10,7 @@ import {
   type MotionValue,
 } from 'framer-motion';
 
+import { usePerfProfile } from '@/hooks/use-perf-profile';
 import type { ScrollOffset } from '@/hooks/use-scroll-reveal';
 import { cn } from '@/lib/utils';
 
@@ -46,6 +47,7 @@ export function TypeText({
   caretClassName,
 }: TypeTextProps) {
   const reduce = useReducedMotion();
+  const { lite } = usePerfProfile();
   const ref = useRef<HTMLSpanElement>(null);
 
   const { scrollYProgress } = useScroll({ target: ref, offset });
@@ -56,7 +58,15 @@ export function TypeText({
     restDelta: 0.001,
   });
 
-  if (reduce) {
+  /*
+   * Efekt „wystukiwania" kosztuje DWA elementy z własną wartością
+   * animowaną NA KAŻDY ZNAK — przy dwóch zdaniach na stronie to grubo
+   * ponad trzysta wartości przeliczanych w każdej klatce przewijania,
+   * plus tyle samo węzłów DOM, które przeglądarka musi rozłożyć w tekście.
+   *
+   * Na słabszym sprzęcie i przy „mniej ruchu" zostaje zwykły akapit.
+   */
+  if (reduce || lite) {
     return <span className={className}>{text}</span>;
   }
 

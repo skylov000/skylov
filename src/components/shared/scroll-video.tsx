@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { motion, useMotionValueEvent, useScroll, useTransform, type MotionValue } from 'framer-motion';
 
+import { usePerfProfile } from '@/hooks/use-perf-profile';
 import { primeHeroVideo, registerHeroVideo } from '@/lib/hero-video';
 import {
   getMediaProgress,
@@ -13,6 +14,21 @@ import {
 } from '@/lib/media-progress';
 import { cn, prefersReducedMotion } from '@/lib/utils';
 
+/**
+ * Górna granica rozmycia startowego w trybie oszczędnym.
+ *
+ * `blur()` na wideo w pełnym ekranie jest z całej strony najdroższym
+ * pojedynczym efektem: przeglądarka musi rozmyć każdą wyświetloną klatkę
+ * z osobna, a koszt splotu rośnie z promieniem. Przy 34 px na materiale
+ * 1080p iPhone nie wyrabia się w budżecie klatki i zaczyna gubić ich
+ * całe serie. 12 px czyta się w hero praktycznie tak samo, a mieści się
+ * w budżecie z zapasem.
+ */
+const LITE_MAX_BLUR = 12;
+
+/** Wysokość strefy przewijania, gdy wideo w ogóle nie leci. */
+const STATIC_HEIGHT_VH = 250;
+
 export interface ScrollVideoState {
   /** Postęp przewijania sekcji, 0–1. */
   progress: MotionValue<number>;
@@ -22,8 +38,12 @@ export interface ScrollVideoState {
 
 interface ScrollVideoProps {
   src: string;
+  /** Lekki wariant materiału dla telefonów i słabszego sprzętu. */
+  srcMobile?: string;
   /** Klatka pokazywana zanim wideo się zdekoduje. */
   poster?: string;
+  /** Plakat w rozmiarze telefonu. */
+  posterMobile?: string;
   /** Wysokość strefy przewijania w jednostkach ekranu (100 = jeden ekran). */
   heightVh?: number;
   /**
@@ -74,7 +94,9 @@ interface ScrollVideoProps {
  */
 export function ScrollVideo({
   src,
+  srcMobile,
   poster,
+  posterMobile,
   heightVh = 300,
   children,
   className,
@@ -90,6 +112,20 @@ export function ScrollVideo({
   const videoRef = useRef<HTMLVideoElement>(null);
   /** Docelowy postęp 0–1. Ref, nie state — zmienia się co klatkę. */
   const targetRef = useRef(0);
+
+  const perf = usePerfProfile();
+
+  /**
+   * Wybór materiału. `off` znaczy: nie pobieraj ani bajta wideo —
+   * zostaje sam plakat. Wchodzi przy oszczędzaniu danych, na łączu 2G
+   * i przy `prefers-reduced-motion`.
+   */
+  const staticMode = perf.video === 'off';
+  const activeSrc = perf.video === 'mobile' && srcMobile ? srcMobile : src;
+  const activePoster = (perf.lite && posterMobile) || poster;
+
+  /** Rozmycie startowe przycięte do budżetu klatki na słabszym sprzęcie. */
+  const effectiveBlur = perf.lite ? Math.min(blurStart, LITE_MAX_BLUR) : blurStart;
 
   const [duration, setDuration] = useState(0);
   const [active, setActive] = useState(true);
@@ -131,12 +167,20 @@ export function ScrollVideo({
   useEffect(() => {
     setReduced(prefersReducedMotion());
 
-    const connection = (
-      navigator as Navigator & { connection?: { saveData?: boolean } }
-    ).connection;
+    /*
+     * Tryb statyczny nie pobiera niczego. Bramka wejściowa dostaje
+     * `ready` natychmiast, więc na wolnym łączu nikt nie czeka na
+     * megabajty, których i tak nie zobaczy.
+     */
+    /*
+     * Dopóki nie wiemy, na czym strona faktycznie działa, nie ruszamy
+     * sieci. Pierwszy przebieg po hydratacji ma jeszcze migawkę serwerową
+     * („pełne możliwości"), a pobranie zaczęte na jej podstawie byłoby
+     * zwyczajnie nie tym plikiem.
+     */
+    if (!perf.resolved) return;
 
-    if (connection?.saveData === true) {
-      setDirectSrc(true);
+    if (staticMode) {
       markMediaReady();
       return;
     }
@@ -146,7 +190,7 @@ export function ScrollVideo({
 
     (async () => {
       try {
-        const response = await fetch(src, { signal: controller.signal });
+        const response = await fetch(activeSrc, { signal: controller.signal });
         if (!response.ok || !response.body) throw new Error(`HTTP ${response.status}`);
 
         const total = Number(response.headers.get('content-length')) || 0;
@@ -181,7 +225,7 @@ export function ScrollVideo({
       controller.abort();
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [src]);
+  }, [activeSrc, staticMode, perf.resolved]);
 
   useMotionValueEvent(scrollYProgress, 'change', (value) => {
     targetRef.current = Math.min(Math.max(value, 0), 1);
@@ -198,7 +242,7 @@ export function ScrollVideo({
    * Filtr jest na tym samym elemencie co powiększenie kadru: nadmiar
    * skali chowa rozmyte krawędzie, które inaczej byłyby widoczne.
    */
-  const blur = useTransform(scrollYProgress, [0, blurEndProgress], [blurStart, 0], {
+  const blur = useTransform(scrollYProgress, [0, blurEndProgress], [effectiveBlur, 0], {
     clamp: true,
   });
   /**
@@ -225,7 +269,7 @@ export function ScrollVideo({
   const scale = useTransform(
     scrollYProgress,
     [0, blurEndProgress],
-    [mediaScale * (blurStart > 0 ? 1 + BLUR_OVERSCAN : 1), mediaScale],
+    [mediaScale * (effectiveBlur > 0 ? 1 + BLUR_OVERSCAN : 1), mediaScale],
     { clamp: true }
   );
 
@@ -274,17 +318,41 @@ export function ScrollVideo({
     };
   }, [blobUrl, directSrc]);
 
-  /* Nie marnuj klatek, gdy hero jest poza ekranem. */
+  /*
+   * Kiedy pętla ma prawo chodzić.
+   *
+   * Dwa warunki, oba konieczne:
+   *
+   * 1. Hero jest w okolicy ekranu (IntersectionObserver).
+   * 2. Karta jest widoczna (`visibilitychange`).
+   *
+   * Drugi warunek nie jest teoretyczny. Na stronie gra muzyka, więc karta
+   * pozostaje „aktywna" nawet po przełączeniu na inną — a wtedy pętla
+   * przewijania klatek i dekoder wideo dalej pracowały w tle. To jest
+   * dokładnie ten scenariusz, w którym telefon robi się gorący i mulisty,
+   * choć strony nie widać.
+   */
   useEffect(() => {
     const wrapper = wrapperRef.current;
     if (!wrapper) return;
 
+    let onScreen = true;
+    const sync = () => setActive(onScreen && document.visibilityState === 'visible');
+
     const observer = new IntersectionObserver(
-      ([entry]) => setActive(entry.isIntersecting),
+      ([entry]) => {
+        onScreen = entry.isIntersecting;
+        sync();
+      },
       { rootMargin: '10% 0px' }
     );
     observer.observe(wrapper);
-    return () => observer.disconnect();
+    document.addEventListener('visibilitychange', sync);
+
+    return () => {
+      observer.disconnect();
+      document.removeEventListener('visibilitychange', sync);
+    };
   }, []);
 
   /* Udostępnij element, żeby ekran powitalny mógł go rozgrzać przy kliknięciu. */
@@ -303,7 +371,7 @@ export function ScrollVideo({
    * dawało czarny ekran zamiast klatek.
    */
   useEffect(() => {
-    if (!blobUrl && !directSrc) return;
+    if (staticMode || (!blobUrl && !directSrc)) return;
 
     const attempt = () => {
       void primeHeroVideo().then((ok) => {
@@ -321,13 +389,24 @@ export function ScrollVideo({
       window.removeEventListener('pointerdown', attempt);
       window.removeEventListener('touchstart', attempt);
     };
-  }, [blobUrl, directSrc]);
+  }, [blobUrl, directSrc, staticMode]);
 
   /* Pętla dociągająca klatkę do celu. */
   useEffect(() => {
-    if (reduced || duration <= 0 || !active) return;
+    if (reduced || staticMode || duration <= 0 || !active) return;
 
     let frame = 0;
+    /*
+     * Minimalny odstęp między przewinięciami, w milisekundach.
+     *
+     * Każde ustawienie `currentTime` to zlecenie dla dekodera. Przy 60
+     * klatkach na sekundę zlecamy je szybciej, niż telefon jest w stanie
+     * je obsłużyć — kolejka rośnie, a razem z nią opóźnienie i zużycie
+     * prądu. 24 przewinięcia na sekundę wystarczają, żeby ruch był
+     * płynny dla oka, i mieszczą się w możliwościach dekodera.
+     */
+    const minSeekInterval = perf.lite ? 1000 / 24 : 0;
+    let lastSeek = 0;
 
     /**
      * Mapowanie postępu przewijania na sekundę filmu.
@@ -346,9 +425,11 @@ export function ScrollVideo({
       return freezeSeconds + rest * animated;
     };
 
-    const tick = () => {
+    const tick = (now: number) => {
       const video = videoRef.current;
-      if (video) {
+      // `readyState < 2` znaczy, że nie ma nawet bieżącej klatki —
+      // przewijanie w tym stanie tylko dokłada dekoderowi pracy.
+      if (video && video.readyState >= 2 && now - lastSeek >= minSeekInterval) {
         const target = timeFor(targetRef.current);
         const diff = target - video.currentTime;
 
@@ -356,6 +437,7 @@ export function ScrollVideo({
         // przed kolejkowaniem żądań szybciej, niż dekoder je obsłuży.
         if (Math.abs(diff) > 0.02 && !video.seeking) {
           video.currentTime += diff * 0.2;
+          lastSeek = now;
         }
       }
       frame = requestAnimationFrame(tick);
@@ -363,53 +445,74 @@ export function ScrollVideo({
 
     frame = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(frame);
-  }, [duration, active, reduced, freezeSeconds, blurEndProgress]);
+  }, [duration, active, reduced, staticMode, perf.lite, freezeSeconds, blurEndProgress]);
 
   return (
     <div
       ref={wrapperRef}
       className={cn('relative', className)}
-      style={{ height: reduced ? '100svh' : `${heightVh}svh` }}
+      style={{
+        height: reduced
+          ? '100svh'
+          : // Bez filmu nie ma czego przewijać klatka po klatce, więc
+            // strefa jest krótsza — hasła zdążą przelecieć, a użytkownik
+            // nie brnie przez sześć ekranów nieruchomego obrazu.
+            `${staticMode ? STATIC_HEIGHT_VH : heightVh}svh`,
+      }}
     >
       <div className="sticky top-0 h-[100svh] w-full overflow-hidden">
         {/*
           Warstwa awaryjna pod wideo.
           Gdyby przeglądarka nie zdołała zdekodować klatki (zdarza się na
           iOS przy przewijaniu bez odtwarzania), użytkownik zobaczy kadr
-          zamiast czerni. Wchodzi dopiero po pobraniu materiału, więc nie
-          konkuruje o łącze i nie wpływa na LCP.
+          zamiast czerni. W trybie statycznym to jedyna warstwa obrazu,
+          więc wchodzi od razu; przy wideo — dopiero po pobraniu materiału,
+          żeby nie konkurowała o łącze i nie zawyżała LCP.
         */}
-        {ready && poster && (
-          <div
+        {(staticMode || ready) && activePoster && (
+          <motion.div
             className="absolute inset-0 bg-cover bg-center"
-            style={{ backgroundImage: `url(${poster})` }}
+            style={{
+              backgroundImage: `url(${activePoster})`,
+              // W trybie statycznym plakat przejmuje rolę filmu: dostaje
+              // to samo rozmycie schodzące przewijaniem, więc otwarcie
+              // strony czyta się tak samo, tylko bez dekodera wideo.
+              ...(staticMode && !reduced ? { scale, filter } : null),
+            }}
             aria-hidden="true"
           />
         )}
 
-        <motion.video
-          ref={videoRef}
-          // Bez `will-change`: stała warstwa kompozycyjna na wideo w pełnym
-          // ekranie zjada pamięć i potrafi ustalić raster na niższej
-          // rozdzielczości. Rozmycie i tak jest przyspieszane sprzętowo.
-          className="absolute inset-0 size-full object-cover"
-          style={reduced ? { transform: `scale(${mediaScale})` } : { scale, filter }}
-          // Źródło pojawia się dopiero po pobraniu materiału do pamięci.
-          // Dzięki temu element nie generuje własnych zapytań zakresowych
-          // równolegle do naszego strumienia.
-          src={blobUrl ?? (directSrc ? src : undefined)}
-          // Plakat dokładamy dopiero, gdy materiał jest gotowy. Wcześniej
-          // ekran powitalny i tak go zasłania, a pełnoekranowy obraz
-          // wczytany na starcie stawał się elementem LCP — mierzonym
-          // wtedy, gdy dociągnie się przez zapchane łącze (30 s na 4G).
-          poster={ready && poster ? poster : undefined}
-          muted
-          playsInline
-          preload="auto"
-          // Bez pętli i bez autoplay — klatkę wyznacza scroll, nie zegar.
-          aria-hidden="true"
-          tabIndex={-1}
-        />
+        {!staticMode && (
+          <motion.video
+            ref={videoRef}
+            // Bez `will-change`: stała warstwa kompozycyjna na wideo w pełnym
+            // ekranie zjada pamięć i potrafi ustalić raster na niższej
+            // rozdzielczości. Rozmycie i tak jest przyspieszane sprzętowo.
+            className="absolute inset-0 size-full object-cover"
+            style={reduced ? { transform: `scale(${mediaScale})` } : { scale, filter }}
+            // Źródło pojawia się dopiero po pobraniu materiału do pamięci.
+            // Dzięki temu element nie generuje własnych zapytań zakresowych
+            // równolegle do naszego strumienia.
+            src={blobUrl ?? (directSrc ? activeSrc : undefined)}
+            // Plakat dokładamy dopiero, gdy materiał jest gotowy. Wcześniej
+            // ekran powitalny i tak go zasłania, a pełnoekranowy obraz
+            // wczytany na starcie stawał się elementem LCP — mierzonym
+            // wtedy, gdy dociągnie się przez zapchane łącze (30 s na 4G).
+            poster={ready && activePoster ? activePoster : undefined}
+            muted
+            playsInline
+            // Materiał jest dekoracją bez dźwięku — nie ma czego rzucać
+            // na telewizor. Bez tego iOS dokłada do warstwy wideo własne
+            // sterowanie AirPlay i trzyma je aktywne przez całą sesję.
+            disableRemotePlayback
+            disablePictureInPicture
+            preload="auto"
+            // Bez pętli i bez autoplay — klatkę wyznacza scroll, nie zegar.
+            aria-hidden="true"
+            tabIndex={-1}
+          />
+        )}
 
         {overlay && (
           <motion.div

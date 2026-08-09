@@ -106,8 +106,22 @@
 
   body {
     @apply bg-background text-foreground font-sans antialiased;
-    text-rendering: optimizeLegibility;
     overflow-x: hidden;
+    /*
+      Świadomie BEZ `text-rendering: optimizeLegibility`.
+
+      Ta własność każe przeglądarce policzyć kerning i ligatury dla całego
+      dokumentu, zanim cokolwiek narysuje, i robi to ponownie przy każdym
+      przeliczeniu układu. Na telefonie to setki milisekund na starcie —
+      przy tej ilości tekstu różnica w wyglądzie jest niedostrzegalna.
+    */
+  }
+
+  /* Bez szarej plamy po tapnięciu — mamy własne stany hover/active. */
+  a,
+  button,
+  [role='button'] {
+    -webkit-tap-highlight-color: transparent;
   }
 
   ::selection {
@@ -172,6 +186,21 @@
 
   .eyebrow {
     @apply text-eyebrow font-semibold uppercase text-neon-violet;
+  }
+
+  /* Poświata tła. Gradient rysuje sam siebie miękko — żadnego `blur()`. */
+  .aurora {
+    animation: aurora-drift 22s ease-in-out infinite;
+  }
+
+  /* Siatka perspektywiczna pod treścią. */
+  .neon-grid {
+    background-image:
+      linear-gradient(rgba(179, 71, 255, 0.05) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(179, 71, 255, 0.05) 1px, transparent 1px);
+    background-size: 64px 64px;
+    -webkit-mask-image: radial-gradient(ellipse 90% 70% at 50% 40%, #000 30%, transparent 100%);
+    mask-image: radial-gradient(ellipse 90% 70% at 50% 40%, #000 30%, transparent 100%);
   }
 
   .hairline {
@@ -283,6 +312,120 @@
   .no-scrollbar {
     -ms-overflow-style: none;
     scrollbar-width: none;
+  }
+}
+
+/* ------------------------------------------------------------------ *
+ *  TRYB OSZCZĘDNY  —  html[data-perf='lite']
+ *
+ *  Atrybut ustawia skrypt z `<head>` (patrz `lib/perf-profile.ts`),
+ *  więc te reguły obowiązują od pierwszej klatki — nic nie zdąży mignąć.
+ *
+ *  Włącza się na telefonach i tabletach, przy słabym sprzęcie
+ *  (≤4 rdzenie albo ≤4 GB RAM), na wolnym łączu i przy „mniej ruchu".
+ *
+ *  Zasada doboru: wycinamy wyłącznie efekty, których koszt jest
+ *  CIĄGŁY — takie, które każą przeglądarce pracować także wtedy, gdy
+ *  użytkownik nic nie robi. To one zamieniają telefon w kaloryfer.
+ *  Układ, kolory i typografia zostają nietknięte.
+ * ------------------------------------------------------------------ */
+html[data-perf='lite'] {
+  /*
+   * 1. Koniec z animacjami w nieskończonej pętli.
+   *
+   * Każda z nich trzyma kompozytor w stanie czuwania i nie pozwala
+   * ekranowi zejść z odświeżania — bateria leci nawet na zatrzymanej
+   * stronie. Wyglądowo to ruch tła, którego nikt nie śledzi.
+   */
+  .aurora,
+  .animate-aurora-drift,
+  .animate-marquee,
+  .animate-pulse-glow,
+  .animate-scroll-hint,
+  .animate-border-spin {
+    animation: none !important;
+  }
+
+  /*
+   * 2. Koniec z `backdrop-filter`.
+   *
+   * Navbar i odtwarzacz są przyklejone i widoczne przez cały czas.
+   * Rozmycie tła każe przeglądarce przy KAŻDEJ klatce przewijania
+   * pobrać piksele spod paska, rozmyć je i złożyć na nowo — dwa takie
+   * pasy na ekranie to stały narzut na całą sesję. Pełne, nieprzezroczyste
+   * tło daje ten sam czytelny kontrast za darmo.
+   */
+  .glass {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    background: rgba(5, 0, 13, 0.94);
+  }
+
+  /*
+   * 3. Koniec z trybami mieszania i ziarnem.
+   *
+   * `mix-blend-mode` wymusza wyodrębnienie warstwy i czytanie tego, co
+   * pod nią leży; ziarno dokłada do tego pełnoekranową teksturę SVG.
+   */
+  .grain::after {
+    display: none;
+  }
+  /*
+   * Warstwy mieszające chowamy, zamiast przestawiać na `normal`.
+   * Są to delikatne refleksy liczone na przenikanie z tłem — bez
+   * mieszania zamieniłyby się w płaską, wyraźnie widoczną płachtę koloru.
+   */
+  .mix-blend-soft-light,
+  .mix-blend-overlay {
+    display: none;
+  }
+
+  /*
+   * 4. Maskę siatki zastępujemy przygaszeniem.
+   *
+   * Maska to osobny przebieg kompozycji przy każdym przemalowaniu.
+   * Przy kryciu 0,55 → 0,22 krawędzie i tak giną w winiecie.
+   */
+  .neon-grid {
+    -webkit-mask-image: none;
+    mask-image: none;
+    opacity: 0.22;
+  }
+
+  /*
+   * 4b. Poświata ekranu powitalnego bez rozmycia.
+   *
+   * Jest to pierwsza warstwa, jaką przeglądarka musi narysować, a ma
+   * wielkość 110vmin. Sam gradient jest już miękki — filtr dokładał
+   * do tego pełny splot tuż przed pierwszym malowaniem.
+   */
+  .intro-glow {
+    filter: none;
+  }
+
+  /*
+   * 5. Cienie-poświaty schodzą do jednej warstwy.
+   *
+   * Podwójny `box-shadow` o promieniu 64 px maluje wielki obszar poza
+   * elementem; przy kilkunastu kartach naraz to zauważalny koszt
+   * przemalowania podczas przewijania.
+   */
+  .shadow-glow,
+  .surface-card:hover {
+    box-shadow: 0 0 20px rgba(179, 71, 255, 0.3) !important;
+  }
+
+  /*
+   * 6. Karta przestaje przenikać „wszystko".
+   *
+   * `transition-all` obejmuje też `filter` i `transform` — czyli
+   * dokładnie te własności, którymi steruje odsłona przewijania.
+   * Powstaje z tego przeciąganie liny: framer ustawia wartość, a CSS
+   * zaczyna do niej dochodzić przez 0,7 s. Zostawiamy tylko to, co
+   * faktycznie ma przenikać przy najechaniu.
+   */
+  .surface-card {
+    transition-property: border-color, box-shadow;
   }
 }
 

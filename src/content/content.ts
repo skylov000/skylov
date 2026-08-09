@@ -160,8 +160,14 @@ export const hero: HeroContent = {
     external: true,
   },
   video: '/videos/hero.mp4',
+  // Wariant dla telefonów i słabszych komputerów: 854×480 zamiast 1920×1080
+  // i klatka kluczowa co 0,2 s zamiast co 0,8 s. Plik waży 2,3 MB zamiast
+  // 5,8 MB, a przewijanie klatek kosztuje ułamek tego, co w 1080p.
+  // Generuje go `scripts/encode-hero-video.ps1` z pliku powyżej.
+  videoMobile: '/videos/hero-mobile.mp4',
   // Pierwsza klatka filmu. Widać ją zanim wideo się zdekoduje.
   poster: '/og/hero-poster.jpg',
+  posterMobile: '/og/hero-poster-mobile.jpg',
   scrollLabel: 'Scroll',
   // ---- CZUŁOŚĆ PRZEWIJANIA ----
   // Całkowita wysokość hero w wysokościach ekranu. To jest pokrętło

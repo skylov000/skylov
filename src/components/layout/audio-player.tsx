@@ -13,7 +13,9 @@ import {
   VolumeX,
 } from 'lucide-react';
 
-import { useAudio } from '@/components/providers/audio-provider';
+import { useAudio, useAudioProgress } from '@/components/providers/audio-provider';
+import { useMediaQuery } from '@/hooks/use-media-query';
+import { usePerfProfile } from '@/hooks/use-perf-profile';
 import { EASE_OUT_EXPO } from '@/lib/animations';
 import { cn, pad } from '@/lib/utils';
 
@@ -43,6 +45,17 @@ function Visualizer({ playing }: { playing: boolean }) {
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
+    /*
+     * Pętla ma prawo chodzić tylko wtedy, gdy jest co pokazywać.
+     *
+     * Wcześniej `requestAnimationFrame` kręcił się bez przerwy przez całą
+     * sesję: przy zatrzymanej muzyce przerysowywał 28 nieruchomych słupków
+     * sześćdziesiąt razy na sekundę, a po przełączeniu karty robił to
+     * dalej, bo grające audio nie pozwala przeglądarce uśpić strony.
+     * Teraz przy pauzie rysujemy jedną klatkę i wychodzimy.
+     */
+    let stopped = false;
+
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
     const resize = () => {
       const rect = canvas.getBoundingClientRect();
@@ -64,10 +77,7 @@ function Visualizer({ playing }: { playing: boolean }) {
       // Poniżej `lg` kontener wizualizatora jest ukryty, więc canvas ma
       // zerową szerokość — a wtedy `barWidth` schodzi poniżej zera
       // i `roundRect` rzuca wyjątkiem na ujemnym promieniu.
-      if (width <= 0 || height <= 0 || barWidth <= 0) {
-        frame = requestAnimationFrame(draw);
-        return;
-      }
+      if (width <= 0 || height <= 0 || barWidth <= 0) return;
 
       ctx.clearRect(0, 0, width, height);
 
@@ -101,13 +111,31 @@ function Visualizer({ playing }: { playing: boolean }) {
         ctx.fill();
       }
 
-      frame = requestAnimationFrame(draw);
+      // Nieruchome słupki nie wymagają kolejnej klatki.
+      if (playing && !stopped) frame = requestAnimationFrame(draw);
+    };
+
+    /* Karta w tle: przerywamy, po powrocie podejmujemy. */
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') {
+        stopped = true;
+        cancelAnimationFrame(frame);
+        return;
+      }
+      if (stopped) {
+        stopped = false;
+        if (playing) frame = requestAnimationFrame(draw);
+      }
     };
 
     frame = requestAnimationFrame(draw);
+    document.addEventListener('visibilitychange', onVisibility);
+
     return () => {
+      stopped = true;
       cancelAnimationFrame(frame);
       window.removeEventListener('resize', resize);
+      document.removeEventListener('visibilitychange', onVisibility);
     };
   }, [analyser, playing]);
 
@@ -124,8 +152,6 @@ export function AudioPlayer() {
     hasEntered,
     volume,
     muted,
-    progress,
-    duration,
     toggle,
     select,
     next,
@@ -135,7 +161,16 @@ export function AudioPlayer() {
     toggleMute,
   } = useAudio();
 
+  // Pozycja siedzi w osobnym kontekście — odświeża się kilka razy
+  // na sekundę i nie ma powodu ruszać nią reszty strony.
+  const { progress, duration } = useAudioProgress();
+
   const [playlistOpen, setPlaylistOpen] = useState(false);
+
+  // Widmo tylko tam, gdzie jest widoczne i jest na nie budżet.
+  const isDesktop = useMediaQuery('(min-width: 1024px)');
+  const { lite } = usePerfProfile();
+  const showVisualizer = isDesktop && !lite;
 
   // Pasek pojawia się dopiero po przejściu przez ekran powitalny.
   if (!hasEntered) return null;
@@ -283,9 +318,17 @@ export function AudioPlayer() {
               </p>
             </div>
 
-            {/* Widmo */}
+            {/*
+              Widmo.
+
+              Kontener jest ukryty poniżej `lg`, ale samo `hidden` nie
+              powstrzymywało komponentu przed zamontowaniem: na telefonie
+              canvas i tak powstawał, a pętla rysująca chodziła w niewidoczny
+              element. Zapytanie o szerokość ekranu decyduje więc o samym
+              renderze, nie tylko o widoczności.
+            */}
             <div className="hidden w-40 lg:block xl:w-56">
-              <Visualizer playing={isPlaying} />
+              {showVisualizer && <Visualizer playing={isPlaying} />}
             </div>
 
             {/* Głośność */}

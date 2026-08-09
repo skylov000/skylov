@@ -4,6 +4,7 @@ import { useRef, type ReactNode } from 'react';
 import { motion, useMotionValue, useSpring } from 'framer-motion';
 
 import { useIsTouch } from '@/hooks/use-media-query';
+import { usePerfProfile } from '@/hooks/use-perf-profile';
 import { cn } from '@/lib/utils';
 
 interface MagneticProps {
@@ -24,6 +25,10 @@ interface MagneticProps {
 export function Magnetic({ children, strength = 0.4, padding = 0, className }: MagneticProps) {
   const ref = useRef<HTMLDivElement>(null);
   const isTouch = useIsTouch();
+  const { lite } = usePerfProfile();
+  // Bez kursora nie ma czego przyciągać, a na słabszym sprzęcie każdy
+  // taki przycisk to dodatkowa para sprężyn liczonych w tle.
+  const inert = isTouch || lite;
 
   const x = useMotionValue(0);
   const y = useMotionValue(0);
@@ -33,7 +38,7 @@ export function Magnetic({ children, strength = 0.4, padding = 0, className }: M
   const springY = useSpring(y, springConfig);
 
   const handlePointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
-    if (isTouch || !ref.current) return;
+    if (inert || !ref.current) return;
     const rect = ref.current.getBoundingClientRect();
     const relX = event.clientX - (rect.left + rect.width / 2);
     const relY = event.clientY - (rect.top + rect.height / 2);
@@ -46,7 +51,7 @@ export function Magnetic({ children, strength = 0.4, padding = 0, className }: M
     y.set(0);
   };
 
-  if (isTouch) {
+  if (inert) {
     return <div className={cn('inline-flex', className)}>{children}</div>;
   }
 

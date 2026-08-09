@@ -50,26 +50,53 @@ export function CustomCursor() {
 
     document.documentElement.setAttribute('data-custom-cursor', 'true');
 
+    /*
+     * Ruch myszy nie może przerenderowywać Reacta.
+     *
+     * Poprzednia wersja wołała `setVisible` i `setMode` przy każdym
+     * zdarzeniu `pointermove` — czyli nawet 120 razy na sekundę wywoływała
+     * render komponentu wraz z całym uzgadnianiem drzewa. Na słabszym
+     * komputerze samo przesuwanie kursora po stronie zjadało wtedy
+     * połowę budżetu klatki, zanim cokolwiek się jeszcze zaczęło ruszać.
+     *
+     * Pozycja idzie przez MotionValue (z pominięciem Reacta), a stan
+     * ustawiamy tylko wtedy, gdy FAKTYCZNIE się zmienił — czyli przy
+     * wjeździe na przycisk, a nie przy każdym drgnięciu ręki.
+     */
+    let lastMode: CursorMode = 'default';
+    let lastVisible = false;
+
     const handleMove = (event: PointerEvent) => {
       x.set(event.clientX);
       y.set(event.clientY);
-      setVisible(true);
+
+      if (!lastVisible) {
+        lastVisible = true;
+        setVisible(true);
+      }
 
       const target = (event.target as HTMLElement | null)?.closest<HTMLElement>(
         '[data-cursor], a, button, [role="button"], input, textarea, select, label'
       );
 
-      if (!target) {
-        setMode('default');
-        return;
-      }
+      const next: CursorMode = target
+        ? ((target.dataset.cursor as CursorMode | undefined) ?? 'hover')
+        : 'default';
 
-      const explicit = target.dataset.cursor as CursorMode | undefined;
-      setMode(explicit ?? 'hover');
+      if (next !== lastMode) {
+        lastMode = next;
+        setMode(next);
+      }
     };
 
-    const handleLeave = () => setVisible(false);
-    const handleEnter = () => setVisible(true);
+    const handleLeave = () => {
+      lastVisible = false;
+      setVisible(false);
+    };
+    const handleEnter = () => {
+      lastVisible = true;
+      setVisible(true);
+    };
 
     window.addEventListener('pointermove', handleMove, { passive: true });
     document.addEventListener('pointerleave', handleLeave);

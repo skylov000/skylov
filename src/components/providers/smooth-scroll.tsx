@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation';
 import Lenis from 'lenis';
 
 import { scrollTo, setLenis } from '@/lib/lenis';
-import { prefersReducedMotion } from '@/lib/utils';
+import { isTouchDevice, prefersReducedMotion } from '@/lib/utils';
 
 /**
  * Płynne przewijanie na Lenisie.
@@ -16,14 +16,21 @@ import { prefersReducedMotion } from '@/lib/utils';
  * dokładał ~45 KiB skryptu wyłącznie po to, żeby wołać jedną funkcję
  * co klatkę.
  *
- * Przy `prefers-reduced-motion` nie uruchamiamy Lenisa wcale — obowiązuje
- * wtedy natywne przewijanie.
+ * Lenis NIE startuje na ekranach dotykowych ani przy
+ * `prefers-reduced-motion` — w obu wypadkach obowiązuje przewijanie
+ * natywne (helper `scrollTo` ma dla nich gotowe zejście awaryjne).
+ *
+ * Powód jest konkretny: Lenis wygładza scroll KÓŁKIEM MYSZY, a przy
+ * domyślnym `syncTouch: false` palca w ogóle nie przechwytuje. Na
+ * telefonie nie robił więc nic poza kręceniem pętli `requestAnimationFrame`
+ * przez cały czas trwania wizyty — a system i tak przewija tam płynniej
+ * i taniej, bo robi to poza głównym wątkiem.
  */
 export function SmoothScroll({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
 
   useEffect(() => {
-    if (prefersReducedMotion()) return;
+    if (prefersReducedMotion() || isTouchDevice()) return;
 
     const lenis = new Lenis({
       duration: 1.15,

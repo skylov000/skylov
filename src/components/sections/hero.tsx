@@ -7,6 +7,7 @@ import { CtaButton } from '@/components/shared/cta-button';
 import { Logo } from '@/components/shared/logo';
 import { ScrollVideo, type ScrollVideoState } from '@/components/shared/scroll-video';
 import { hero } from '@/content/content';
+import { usePerfProfile } from '@/hooks/use-perf-profile';
 import { EASE_OUT_EXPO } from '@/lib/animations';
 import { scrollTo } from '@/lib/lenis';
 import { clamp } from '@/lib/utils';
@@ -41,6 +42,7 @@ function progressForSecond(second: number, duration: number): number {
 
 function HeroStage({ progress, duration }: ScrollVideoState) {
   const { hasEntered } = useAudio();
+  const { lite } = usePerfProfile();
 
   // Blok wejściowy ustępuje miejsca filmowi.
   const introOpacity = useTransform(progress, [0, INTRO_END], [1, 0]);
@@ -52,7 +54,15 @@ function HeroStage({ progress, duration }: ScrollVideoState) {
       {/* ---------- Blok wejściowy ---------- */}
       <motion.div
         className="shell flex flex-1 flex-col items-center justify-center gap-9 text-center"
-        style={{ opacity: introOpacity, y: introY, filter: introBlur }}
+        // Rozmycie na wyjściu tylko tam, gdzie jest na nie budżet: blok
+        // zawiera logotyp i przyciski, więc filtr obejmuje spory kawałek
+        // ekranu i przelicza się przy każdej klatce przewijania. Samo
+        // wygaszenie z odjazdem czyta się niemal tak samo.
+        //
+        // `'none'` podane jawnie, a nie pominięte — patrz komentarz
+        // w `useScrollReveal`: profil znamy dopiero po hydratacji, więc
+        // trzeba nadpisać to, co zdążył wpisać pierwszy render.
+        style={{ opacity: introOpacity, y: introY, filter: lite ? 'none' : introBlur }}
       >
         <motion.span
           className="eyebrow"
@@ -65,7 +75,11 @@ function HeroStage({ progress, duration }: ScrollVideoState) {
 
         <motion.div
           initial={{ opacity: 0, scale: 0.9, filter: 'blur(20px)' }}
-          animate={hasEntered ? { opacity: 1, scale: 1, filter: 'blur(0px)' } : {}}
+          // Koniec na `none`, nie `blur(0px)`: zerowe rozmycie nadal
+          // przepuszcza warstwę przez potok filtrów i każe ją rastrować
+          // przez resztę wizyty. Zdjęcie filtra oddaje logotyp wprost
+          // kompozytorowi — i przy okazji wychodzi ostrzej.
+          animate={hasEntered ? { opacity: 1, scale: 1, filter: 'none' } : {}}
           transition={{ duration: 1.4, ease: EASE_OUT_EXPO, delay: 0.3 }}
         >
           {/* Logotyp niesie nazwę wizualnie; <h1> niesie ją dla czytników. */}
@@ -154,6 +168,8 @@ function TaglineLine({
   const opacity = useTransform(progress, range, [0, 1, 1, 0]);
   const y = useTransform(progress, range, ['42%', '0%', '0%', '-42%']);
 
+  const { lite } = usePerfProfile();
+
   /*
    * Rozmycie wejścia/wyjścia i cień jadą jedną własnością `filter`.
    *
@@ -161,13 +177,19 @@ function TaglineLine({
    * `background-clip: text` gradient jest tłem elementu, a text-shadow
    * maluje się już po nim — czarna plama wychodziła w środku liter.
    * `drop-shadow` operuje na gotowym renderze, więc otacza glify.
+   *
+   * W trybie oszczędnym zostaje sam cień pod czytelność, i to stały.
+   * Animowany `blur` na napisie wielkości pół ekranu każe przeliczać
+   * splot w każdej klatce przewijania — a leży on jeszcze na rozmytym
+   * wideo, więc telefon liczy dwa pełnoekranowe rozmycia naraz.
    */
   const blurPx = useTransform(progress, range, [16, 0, 0, 16]);
-  const filter = useTransform(
+  const animatedFilter = useTransform(
     blurPx,
     (value) =>
       `blur(${value.toFixed(2)}px) drop-shadow(0 4px 16px rgba(0,0,0,0.9)) drop-shadow(0 0 44px rgba(179,71,255,0.55))`
   );
+  const filter = lite ? 'drop-shadow(0 3px 12px rgba(0,0,0,0.92))' : animatedFilter;
 
   return (
     <motion.span
@@ -189,7 +211,9 @@ export function Hero() {
     <section id="hero" aria-label="Wprowadzenie">
       <ScrollVideo
         src={hero.video}
+        srcMobile={hero.videoMobile}
         poster={hero.poster}
+        posterMobile={hero.posterMobile}
         heightVh={hero.scrubHeightVh}
         mediaScale={hero.mediaScale}
         blurStart={hero.blurStart}

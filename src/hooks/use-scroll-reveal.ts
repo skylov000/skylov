@@ -9,6 +9,8 @@ import {
   type MotionValue,
 } from 'framer-motion';
 
+import { usePerfProfile } from '@/hooks/use-perf-profile';
+
 /**
  * Typ okna przewijania wyprowadzony wprost z sygnatury `useScroll` —
  * framer trzyma go jako unię literałów, której nie da się zapisać
@@ -57,7 +59,7 @@ export interface ScrollRevealResult<T extends HTMLElement = HTMLDivElement> {
   ref: React.RefObject<T | null>;
   /** Postęp odsłony 0–1 — przydatny, gdy chcesz sterować czymś jeszcze. */
   progress: MotionValue<number>;
-  style: Record<string, MotionValue<number> | MotionValue<string>> | undefined;
+  style: Record<string, MotionValue<number> | MotionValue<string> | string> | undefined;
   /** `false` przy `prefers-reduced-motion` — wtedy renderuj statycznie. */
   enabled: boolean;
 }
@@ -85,15 +87,26 @@ export function useScrollReveal<T extends HTMLElement = HTMLDivElement>({
 }: ScrollRevealOptions = {}): ScrollRevealResult<T> {
   const ref = useRef<T | null>(null);
   const reduce = useReducedMotion();
+  const { lite } = usePerfProfile();
 
   const { scrollYProgress } = useScroll({ target: ref, offset });
 
-  const eased = useSpring(scrollYProgress, {
+  const spring = useSpring(scrollYProgress, {
     stiffness: 140,
     damping: 30,
     mass: 0.35,
     restDelta: 0.001,
   });
+
+  /*
+   * Sprężyna wygładza surowy scrub i dokłada wrażenie masy — ale każda
+   * z nich to osobna animacja dobijająca do celu jeszcze długo po tym,
+   * jak przewijanie ustanie. Na stronie jest ich ponad dwadzieścia naraz,
+   * więc na słabszym sprzęcie zostaje sam postęp przewijania: ruch jest
+   * odrobinę bardziej „przypięty" do palca, za to nic nie dogania go
+   * w tle.
+   */
+  const eased = lite ? scrollYProgress : spring;
 
   /*
    * Okno pojedynczego elementu jest krótsze niż całe okno grupy i przesunięte
@@ -118,12 +131,39 @@ export function useScrollReveal<T extends HTMLElement = HTMLDivElement>({
     return { ref, progress, style: undefined, enabled: false };
   }
 
-  const style: Record<string, MotionValue<number> | MotionValue<string>> = { opacity };
+  const style: Record<string, MotionValue<number> | MotionValue<string> | string> = { opacity };
   if (y !== 0) style.y = yValue;
   if (x !== 0) style.x = xValue;
   if (scale !== 1) style.scale = scaleValue;
-  if (rotateX !== 0) style.rotateX = rotateXValue;
-  if (blur > 0) style.filter = filter;
+
+  /*
+   * Na słabszym sprzęcie odsłona zostaje przy samych transformacjach
+   * i kryciu — czyli tym, co kompozytor robi za darmo na GPU.
+   *
+   * `rotateX` wypycha element na własną warstwę 3D, a `blur()` każe go
+   * rastrować i splatać od nowa przy każdej zmianie postępu. Przy
+   * dwudziestu kilku odsłonach w jednym widoku to najdroższa rzecz na
+   * całej stronie zaraz po wideo — a różnica w odbiorze jest minimalna,
+   * bo i tak wszystko trwa ułamek sekundy.
+   *
+   * UWAGA na sposób wyłączenia: w trybie oszczędnym podajemy `'none'`
+   * jawnie, zamiast pomijać `filter` w obiekcie stylu.
+   *
+   * Profil urządzenia znamy dopiero PO hydratacji, więc pierwszy render
+   * zdąży wpisać elementowi `filter: blur(...)` w styl liniowy. Samo
+   * usunięcie klucza sprawia tylko tyle, że framer przestaje tę własność
+   * aktualizować — wpisana wartość zostaje w stylu na zawsze i karty
+   * zostają rozmyte na stałe. `'none'` nadpisuje ją raz i temat znika.
+   *
+   * `rotateX` tego nie wymaga: `transform` jest składany od nowa
+   * z aktualnego zestawu własności, więc porzucona oś sama się zeruje.
+   */
+  if (lite) {
+    if (blur > 0) style.filter = 'none';
+  } else {
+    if (rotateX !== 0) style.rotateX = rotateXValue;
+    if (blur > 0) style.filter = filter;
+  }
 
   return { ref, progress, style, enabled: true };
 }

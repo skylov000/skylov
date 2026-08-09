@@ -110,8 +110,16 @@ export interface HeroContent {
   secondaryCta: CtaLink;
   /** Scroll-scrubbed background video in /public/videos. */
   video: string;
+  /**
+   * Lekki wariant tego samego materiału (480p, gęste klatki kluczowe).
+   * Dostają go telefony i słabsze komputery: cztery razy mniej pikseli
+   * do zdekodowania i znacznie tańsze przewijanie klatek.
+   */
+  videoMobile: string;
   /** Poster frame + fallback when the video cannot play. */
   poster: string;
+  /** Plakat w rozmiarze telefonu — nie ma po co słać 1672 px na 400 px ekran. */
+  posterMobile: string;
   scrollLabel: string;
   /**
    * Total hero height in viewport heights. This is the scrub sensitivity

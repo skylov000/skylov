@@ -85,12 +85,19 @@ export function YoutubeCard({ latest, publishedLabel }: YoutubeCardProps) {
   return (
     <Reveal y={64} blur={14} scale={0.95}>
       <article className="surface-card group relative overflow-hidden p-8 md:p-12 lg:p-14">
-        {/* Czerwona poświata YouTube, ledwo widoczna, budzi się przy hoverze */}
+        {/*
+          Czerwona poświata YouTube, ledwo widoczna, budzi się przy hoverze.
+
+          Miękkość niesie sam gradient — tak samo jak w tle strony
+          (`NeonField`). Wcześniej było to `blur(100px)` na kole o boku
+          576 px, czyli splot na ponad 300 tysiącach pikseli, żeby
+          rozmyć coś, co i tak jest rozmyte z definicji.
+        */}
         <div
-          className="pointer-events-none absolute -right-[10%] -top-[40%] size-[36rem] rounded-full opacity-40 blur-[100px] transition-opacity duration-1000 group-hover:opacity-70"
+          className="pointer-events-none absolute -right-[10%] -top-[40%] size-[36rem] rounded-full opacity-40 transition-opacity duration-1000 group-hover:opacity-70"
           style={{
             background:
-              'radial-gradient(circle, rgba(255,0,60,0.28) 0%, rgba(179,71,255,0.12) 50%, transparent 70%)',
+              'radial-gradient(circle closest-side, rgba(255,0,60,0.26) 0%, rgba(224,26,140,0.17) 32%, rgba(179,71,255,0.08) 58%, rgba(179,71,255,0.02) 80%, transparent 100%)',
           }}
           aria-hidden="true"
         />

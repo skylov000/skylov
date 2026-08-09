@@ -4,6 +4,7 @@ import { useCallback, useRef, type PointerEvent } from 'react';
 import { useMotionValue, useReducedMotion, useSpring, type MotionValue } from 'framer-motion';
 
 import { useIsTouch } from '@/hooks/use-media-query';
+import { usePerfProfile } from '@/hooks/use-perf-profile';
 
 interface TiltOptions {
   /** Maksymalne wychylenie w stopniach. */
@@ -34,14 +35,22 @@ interface TiltResult {
  * a sprężyna wygładza dojście i powrót. Wartości idą przez MotionValue,
  * więc ruch myszy nie powoduje ani jednego re-renderu Reacta.
  *
- * Wyłączone na dotyku (nie ma kursora) i przy `prefers-reduced-motion`.
+ * Wyłączone na dotyku (nie ma kursora), przy `prefers-reduced-motion`
+ * i na słabszym sprzęcie.
+ *
+ * To ostatnie nie jest przesadną ostrożnością: przechył wypycha kartę na
+ * własną warstwę 3D (`preserve-3d` plus `translateZ` na jej wnętrzu),
+ * a kart z przechyłem jest na stronie kilkanaście — usługi i współprace
+ * razem. Każda z nich to dwie sprężyny dobijające do celu jeszcze po
+ * zatrzymaniu kursora.
  */
 export function useTilt({ max = 9, perspective = 900, ref: externalRef }: TiltOptions = {}): TiltResult {
   const localRef = useRef<HTMLDivElement | null>(null);
   const ref = externalRef ?? localRef;
   const isTouch = useIsTouch();
   const reduce = useReducedMotion();
-  const enabled = !isTouch && !reduce;
+  const { lite } = usePerfProfile();
+  const enabled = !isTouch && !reduce && !lite;
 
   const rawX = useMotionValue(0);
   const rawY = useMotionValue(0);
