@@ -1,8 +1,15 @@
 'use client';
 
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { motion, useMotionValueEvent, useScroll, useTransform, type MotionValue } from 'framer-motion';
 
+import {
+  getMediaProgress,
+  getServerMediaProgress,
+  markMediaReady,
+  setMediaProgress,
+  subscribeMediaProgress,
+} from '@/lib/media-progress';
 import { cn, prefersReducedMotion } from '@/lib/utils';
 
 export interface ScrollVideoState {
@@ -92,24 +99,94 @@ export function ScrollVideo({
    * oszczędzaniu danych `metadata`: przeglądarka dociąga wtedy tylko te
    * zakresy bajtów, które są potrzebne do aktualnej klatki.
    */
-  const [preload, setPreload] = useState<'auto' | 'metadata'>('metadata');
+  /** Adres Blob z pobranym materiałem — dopóki null, wideo nie ma źródła. */
+  const [blobUrl, setBlobUrl] = useState<string | null>(null);
+  /** Awaryjne odtwarzanie prosto z sieci (oszczędzanie danych albo błąd). */
+  const [directSrc, setDirectSrc] = useState(false);
+
+  /** Czy materiał jest już gotowy — decyduje o doklejeniu plakatu. */
+  const { ready } = useSyncExternalStore(
+    subscribeMediaProgress,
+    getMediaProgress,
+    getServerMediaProgress
+  );
 
   const { scrollYProgress } = useScroll({
     target: wrapperRef,
     offset: ['start start', 'end end'],
   });
 
+  /**
+   * Pobranie materiału własnymi siłami.
+   *
+   * Element `<video preload="auto">` **nie** ściąga całego pliku: po
+   * zbuforowaniu ułamka sekundy przechodzi w `networkState: IDLE`,
+   * uznając, że ma dość danych do odtwarzania. Dla zwykłego odtwarzania
+   * to rozsądne, ale my przewijamy klatki — każdy skok poza bufor to
+   * wtedy osobne zapytanie zakresowe i właśnie stąd szarpanie na wolnym
+   * łączu.
+   *
+   * Dlatego czytamy plik strumieniem: mamy uczciwy postęp w bajtach,
+   * a gotowy materiał podajemy jako Blob, czyli z pamięci — przewijanie
+   * nie dotyka już sieci.
+   *
+   * Przy `saveData` rezygnujemy z tego: 30 MB na łączu z włączonym
+   * oszczędzaniem danych byłoby nadużyciem.
+   */
   useEffect(() => {
     setReduced(prefersReducedMotion());
 
     const connection = (
       navigator as Navigator & { connection?: { saveData?: boolean } }
     ).connection;
-    const saveData = connection?.saveData === true;
-    const narrow = window.matchMedia('(max-width: 767px)').matches;
 
-    setPreload(saveData || narrow ? 'metadata' : 'auto');
-  }, []);
+    if (connection?.saveData === true) {
+      setDirectSrc(true);
+      markMediaReady();
+      return;
+    }
+
+    const controller = new AbortController();
+    let objectUrl: string | null = null;
+
+    (async () => {
+      try {
+        const response = await fetch(src, { signal: controller.signal });
+        if (!response.ok || !response.body) throw new Error(`HTTP ${response.status}`);
+
+        const total = Number(response.headers.get('content-length')) || 0;
+        const reader = response.body.getReader();
+        const chunks: Uint8Array[] = [];
+        let received = 0;
+
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          chunks.push(value);
+          received += value.length;
+          if (total > 0) {
+            setMediaProgress({ progress: Math.min(received / total, 0.999) });
+          }
+        }
+
+        const blob = new Blob(chunks as BlobPart[], { type: 'video/mp4' });
+        objectUrl = URL.createObjectURL(blob);
+        setBlobUrl(objectUrl);
+        markMediaReady();
+      } catch (error) {
+        if ((error as Error).name === 'AbortError') return;
+        // Nie blokuj wejścia, gdy pobranie padnie — wideo poleci wtedy
+        // prosto z sieci, w trybie dociągania na żądanie.
+        setDirectSrc(true);
+        markMediaReady();
+      }
+    })();
+
+    return () => {
+      controller.abort();
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [src]);
 
   useMotionValueEvent(scrollYProgress, 'change', (value) => {
     targetRef.current = Math.min(Math.max(value, 0), 1);
@@ -173,19 +250,34 @@ export function ScrollVideo({
    */
   const outroOpacity = useTransform(scrollYProgress, [outroFadeFrom, 1], [0, 1], { clamp: true });
 
-  /* Czas trwania znamy dopiero po metadanych. */
+  /**
+   * Czas trwania znamy dopiero po metadanych.
+   *
+   * Zależność od źródła jest tu istotna: element dostaje `src` dopiero
+   * po pobraniu materiału, więc efekt zamontowany raz, przy pustym wideo,
+   * przegapiłby zdarzenie. Ponowne uruchomienie po zmianie źródła sprawia,
+   * że stan czasu trwania zawsze się ustawi — a bez niego pętla
+   * przewijania klatek w ogóle nie startuje.
+   */
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
 
     const onMeta = () => {
-      if (Number.isFinite(video.duration)) setDuration(video.duration);
+      if (Number.isFinite(video.duration) && video.duration > 0) {
+        setDuration(video.duration);
+      }
     };
 
     if (video.readyState >= 1) onMeta();
     video.addEventListener('loadedmetadata', onMeta);
-    return () => video.removeEventListener('loadedmetadata', onMeta);
-  }, []);
+    video.addEventListener('durationchange', onMeta);
+
+    return () => {
+      video.removeEventListener('loadedmetadata', onMeta);
+      video.removeEventListener('durationchange', onMeta);
+    };
+  }, [blobUrl, directSrc]);
 
   /* Nie marnuj klatek, gdy hero jest poza ekranem. */
   useEffect(() => {
@@ -274,11 +366,18 @@ export function ScrollVideo({
           // rozdzielczości. Rozmycie i tak jest przyspieszane sprzętowo.
           className="absolute inset-0 size-full object-cover"
           style={reduced ? { transform: `scale(${mediaScale})` } : { scale, filter }}
-          src={src}
-          poster={poster || undefined}
+          // Źródło pojawia się dopiero po pobraniu materiału do pamięci.
+          // Dzięki temu element nie generuje własnych zapytań zakresowych
+          // równolegle do naszego strumienia.
+          src={blobUrl ?? (directSrc ? src : undefined)}
+          // Plakat dokładamy dopiero, gdy materiał jest gotowy. Wcześniej
+          // ekran powitalny i tak go zasłania, a pełnoekranowy obraz
+          // wczytany na starcie stawał się elementem LCP — mierzonym
+          // wtedy, gdy dociągnie się przez zapchane łącze (30 s na 4G).
+          poster={ready && poster ? poster : undefined}
           muted
           playsInline
-          preload={preload}
+          preload="auto"
           // Bez pętli i bez autoplay — klatkę wyznacza scroll, nie zegar.
           aria-hidden="true"
           tabIndex={-1}

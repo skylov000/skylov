@@ -126,6 +126,11 @@ export const intro: IntroContent = {
   button: 'Wejdź na stronę',
   note: 'Dźwięk możesz wyłączyć w każdej chwili w odtwarzaczu na dole ekranu.',
   skip: 'Wejdź bez dźwięku',
+  loading: 'Wczytywanie',
+  loadingHint: 'Przygotowuję materiał wideo — przyciski odblokują się po wczytaniu.',
+  // Komunikat po odblokowaniu awaryjnym, gdy wczytywanie się przeciąga.
+  bypass: 'Wczytywanie trwa dłużej niż zwykle — możesz wejść, wideo dociągnie się w tle.',
+  bypassAfterSeconds: 15,
 };
 
 /* -------------------------------------------------------------------------- */

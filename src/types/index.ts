@@ -76,6 +76,14 @@ export interface IntroContent {
   /** Small print under the button. */
   note: string;
   skip: string;
+  /** Label above the loading bar. */
+  loading: string;
+  /** Explains why the buttons are disabled. */
+  loadingHint: string;
+  /** Escape hatch shown when loading drags on. */
+  bypass: string;
+  /** After how many seconds the escape hatch appears. */
+  bypassAfterSeconds: number;
 }
 
 /**

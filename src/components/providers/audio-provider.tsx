@@ -87,7 +87,15 @@ export function AudioProvider({ children }: { children: React.ReactNode }) {
   /* --- utworzenie elementu audio + losowanie pierwszego utworu --- */
   useEffect(() => {
     const audio = new Audio();
-    audio.preload = 'metadata';
+    /*
+     * `none`, nie `metadata`.
+     *
+     * Przy `metadata` przeglądarka sięga po plik już przy pierwszym
+     * renderze i kilka megabajtów audio konkuruje o łącze z wideo hero
+     * oraz zasobami krytycznymi. Na wolnym mobilnym łączu to właśnie
+     * wypychało LCP w okolice 30 s. Pobranie rusza dopiero przy play().
+     */
+    audio.preload = 'none';
     audio.loop = false;
     audioRef.current = audio;
 

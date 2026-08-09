@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
 import Image from 'next/image';
 import { AnimatePresence, motion } from 'framer-motion';
 import { Headphones, Play, VolumeX } from 'lucide-react';
@@ -9,20 +9,39 @@ import { useAudio } from '@/components/providers/audio-provider';
 import { brand, intro, site } from '@/content/content';
 import { EASE_IN_OUT_EXPO, EASE_OUT_EXPO } from '@/lib/animations';
 import { startScroll, stopScroll } from '@/lib/lenis';
+import {
+  getMediaProgress,
+  getServerMediaProgress,
+  subscribeMediaProgress,
+} from '@/lib/media-progress';
+import { cn } from '@/lib/utils';
 
 /**
  * Ekran powitalny „załóż słuchawki".
  *
- * Pełni podwójną rolę: jest zasłoną ładowania i — co ważniejsze — gestem
- * użytkownika, którego przeglądarka wymaga, żeby w ogóle wolno było
- * odtworzyć dźwięk i zbudować AudioContext.
+ * Pełni trzy role naraz:
  *
- * Drugie wyjście („bez dźwięku") jest obowiązkowe: nie każdy chce, żeby
- * strona zaczęła grać, a wejście na treść nie może zależeć od zgody na audio.
+ * 1. Jest gestem użytkownika, którego przeglądarka wymaga, żeby wolno
+ *    było odtworzyć dźwięk i zbudować AudioContext.
+ * 2. Przytrzymuje wejście, dopóki wideo hero nie znajdzie się w buforze —
+ *    bez tego na wolnym łączu strona wchodzi w scroll z niedociągniętym
+ *    materiałem i przewijanie klatek szarpie.
+ * 3. Daje wyjście awaryjne, gdy wczytywanie się przeciąga. Nikt nie może
+ *    zostać uwięziony na ekranie ładowania.
  */
 export function IntroGate() {
   const { enter, hasEntered } = useAudio();
   const [visible, setVisible] = useState(true);
+  const [bypassVisible, setBypassVisible] = useState(false);
+
+  const { progress, ready } = useSyncExternalStore(
+    subscribeMediaProgress,
+    getMediaProgress,
+    getServerMediaProgress
+  );
+
+  const percent = Math.round(progress * 100);
+  const unlocked = ready || bypassVisible;
 
   useEffect(() => {
     if (!visible) return;
@@ -35,6 +54,16 @@ export function IntroGate() {
       document.body.style.overflow = '';
     };
   }, [visible]);
+
+  /* Wyjście awaryjne po czasie — na wypadek bardzo wolnego łącza. */
+  useEffect(() => {
+    if (ready) return;
+    const timer = window.setTimeout(
+      () => setBypassVisible(true),
+      intro.bypassAfterSeconds * 1000
+    );
+    return () => window.clearTimeout(timer);
+  }, [ready]);
 
   const handleEnter = (withSound: boolean) => {
     enter(withSound);
@@ -69,14 +98,17 @@ export function IntroGate() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 1, ease: EASE_OUT_EXPO, delay: 0.15 }}
           >
-            {/* Szerokość wiedzie prym — logotyp jest bardzo szeroki (5,7:1),
-                więc na wąskich ekranach ograniczamy go bokiem, nie wysokością. */}
+            {/*
+              Logotyp jest tu największym elementem, więc to on wyznacza LCP.
+              `priority` sprawia, że idzie w pierwszej fali zapytań.
+            */}
             <Image
               src={brand.logo}
               alt={site.name}
               width={brand.logoWidth}
               height={brand.logoHeight}
               priority
+              fetchPriority="high"
               sizes="(max-width: 640px) 68vw, 380px"
               className="h-auto w-[min(68vw,380px)] drop-shadow-[0_0_30px_rgba(179,71,255,0.55)]"
             />
@@ -101,7 +133,7 @@ export function IntroGate() {
           </motion.div>
 
           <motion.div
-            className="relative flex flex-col items-center gap-5"
+            className="relative flex w-full max-w-md flex-col items-center gap-5"
             initial={{ opacity: 0, y: 24 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 1, ease: EASE_OUT_EXPO, delay: 0.4 }}
@@ -110,8 +142,8 @@ export function IntroGate() {
               <button
                 type="button"
                 onClick={() => handleEnter(true)}
-                autoFocus
-                className="group inline-flex h-14 items-center gap-3 rounded-full bg-primary px-9 font-display text-sm font-semibold uppercase tracking-wider text-primary-foreground shadow-glow transition-transform duration-500 ease-out-expo hover:scale-[1.04]"
+                disabled={!unlocked}
+                className="group inline-flex h-14 items-center gap-3 rounded-full bg-primary px-9 font-display text-sm font-semibold uppercase tracking-wider text-primary-foreground shadow-glow transition-all duration-500 ease-out-expo enabled:hover:scale-[1.04] disabled:cursor-not-allowed disabled:opacity-40 disabled:shadow-none"
               >
                 <Play className="size-4 fill-current" aria-hidden="true" />
                 {intro.button}
@@ -120,14 +152,56 @@ export function IntroGate() {
               <button
                 type="button"
                 onClick={() => handleEnter(false)}
-                className="inline-flex h-14 items-center gap-3 rounded-full border border-border px-7 text-sm text-muted-foreground transition-colors duration-500 hover:bg-hover hover:text-foreground"
+                disabled={!unlocked}
+                className="inline-flex h-14 items-center gap-3 rounded-full border border-border px-7 text-sm text-muted-foreground transition-colors duration-500 enabled:hover:bg-hover enabled:hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
               >
                 <VolumeX className="size-4" aria-hidden="true" />
                 {intro.skip}
               </button>
             </div>
 
-            <p className="max-w-sm text-xs font-light text-muted-foreground">{intro.note}</p>
+            {/* ---------- Pasek wczytywania ---------- */}
+            <div
+              className={cn(
+                'flex w-full flex-col gap-2 transition-opacity duration-700',
+                ready ? 'pointer-events-none opacity-0' : 'opacity-100'
+              )}
+              aria-hidden={ready}
+            >
+              <div className="flex items-baseline justify-between text-[0.625rem] uppercase tracking-[0.18em] text-muted-foreground">
+                <span>{intro.loading}</span>
+                <span className="font-display tabular-nums text-neon-violet">{percent}%</span>
+              </div>
+
+              <div
+                className="h-px w-full overflow-hidden bg-border"
+                role="progressbar"
+                aria-valuenow={percent}
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-label={intro.loading}
+              >
+                <div
+                  className="h-full bg-gradient-to-r from-neon-violet to-neon-pink transition-[width] duration-300 ease-out"
+                  style={{ width: `${percent}%` }}
+                />
+              </div>
+
+              {/* Po przekroczeniu progu czasu przyciski się odblokowują,
+                  więc komunikat musi to wytłumaczyć. */}
+              <p className="text-xs font-light text-muted-foreground">
+                {bypassVisible ? intro.bypass : intro.loadingHint}
+              </p>
+            </div>
+
+            <p
+              className={cn(
+                'max-w-sm text-xs font-light text-muted-foreground transition-opacity duration-700',
+                ready ? 'opacity-100' : 'opacity-0'
+              )}
+            >
+              {intro.note}
+            </p>
           </motion.div>
         </motion.div>
       )}

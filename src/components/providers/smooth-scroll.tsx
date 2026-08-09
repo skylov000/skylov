@@ -4,16 +4,20 @@ import { useEffect } from 'react';
 import { usePathname } from 'next/navigation';
 import Lenis from 'lenis';
 
-import { gsap, registerGsap } from '@/lib/gsap';
 import { scrollTo, setLenis } from '@/lib/lenis';
 import { prefersReducedMotion } from '@/lib/utils';
 
 /**
- * Lenis smooth scrolling, driven by the GSAP ticker so that Lenis and
- * ScrollTrigger share a single rAF loop. Two loops means jitter.
+ * Płynne przewijanie na Lenisie.
  *
- * Skipped entirely when the user prefers reduced motion — native
- * scrolling then applies, and every ScrollTrigger still works.
+ * Pętla to zwykły `requestAnimationFrame`. Wcześniej napędzał ją ticker
+ * GSAP-a, bo współdzielił zegar ze ScrollTriggerem — ale po przejściu
+ * odsłon na Framer Motion nie został ani jeden ScrollTrigger, a sam GSAP
+ * dokładał ~45 KiB skryptu wyłącznie po to, żeby wołać jedną funkcję
+ * co klatkę.
+ *
+ * Przy `prefers-reduced-motion` nie uruchamiamy Lenisa wcale — obowiązuje
+ * wtedy natywne przewijanie.
  */
 export function SmoothScroll({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -21,11 +25,9 @@ export function SmoothScroll({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (prefersReducedMotion()) return;
 
-    const { ScrollTrigger } = registerGsap();
-
     const lenis = new Lenis({
       duration: 1.15,
-      // Expo-out: matches the CSS/Framer easing used everywhere else.
+      // Expo-out: ta sama krzywa co w CSS-ie i w Framer Motion.
       easing: (t) => Math.min(1, 1.001 - Math.pow(2, -10 * t)),
       orientation: 'vertical',
       gestureOrientation: 'vertical',
@@ -37,28 +39,21 @@ export function SmoothScroll({ children }: { children: React.ReactNode }) {
 
     setLenis(lenis);
 
-    // Keep ScrollTrigger's cached positions in sync with Lenis.
-    lenis.on('scroll', ScrollTrigger.update);
-
-    const raf = (time: number) => lenis.raf(time * 1000);
-    gsap.ticker.add(raf);
-    gsap.ticker.lagSmoothing(0);
-
-    // Late-loading fonts and images change the page height.
-    const refresh = () => ScrollTrigger.refresh();
-    window.addEventListener('load', refresh);
-    const refreshTimer = window.setTimeout(refresh, 800);
+    let frame = 0;
+    const raf = (time: number) => {
+      lenis.raf(time);
+      frame = requestAnimationFrame(raf);
+    };
+    frame = requestAnimationFrame(raf);
 
     return () => {
-      window.removeEventListener('load', refresh);
-      window.clearTimeout(refreshTimer);
-      gsap.ticker.remove(raf);
+      cancelAnimationFrame(frame);
       lenis.destroy();
       setLenis(null);
     };
   }, []);
 
-  // New route → start at the top, without an animated fly-up.
+  // Nowa trasa → start od góry, bez animowanego przelotu.
   useEffect(() => {
     scrollTo(0, { immediate: true });
   }, [pathname]);

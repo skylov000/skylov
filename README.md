@@ -2,7 +2,7 @@
 
 Portfolio producenta muzycznego: ciemna, neonowa strona z **wideo w tle przewijanym scrollem**, wbudowanym odtwarzaczem muzyki i pełną ofertą usług.
 
-Zbudowane na **Next.js 15**, **TypeScript**, **TailwindCSS**, **Framer Motion**, **GSAP**, **Lenis** i **shadcn/ui**.
+Zbudowane na **Next.js 15**, **TypeScript**, **TailwindCSS**, **Framer Motion**, **Lenis** i **shadcn/ui**.
 
 Cała treść siedzi w jednym pliku — [`src/content/content.ts`](src/content/content.ts). Żaden komponent nie zawiera zaszytego na sztywno tekstu.
 
@@ -112,6 +112,16 @@ Zmieniasz **wyłącznie `scrubHeightVh`**:
 | `900` | ~7 200 px — bardzo powoli |
 
 Dwie fazy wstępu (`introScrollVh`, `blurScrollVh`) są podane w **ekranach przewijania**, a nie w ułamku całości. Dlatego spowolnienie filmu nie rozciąga wstępu — logo znika i rozmycie schodzi zawsze po tym samym dystansie. Hasła nad filmem same rozkładają się równo na przewijaniu, które zostaje.
+
+### Pobieranie materiału i bramka ładowania
+
+Wideo jest pobierane **strumieniem przez `fetch`**, a nie zostawione elementowi `<video>`. Powód jest konkretny: `preload="auto"` **nie ściąga całego pliku** — przeglądarka buforuje ułamek sekundy, przechodzi w `networkState: IDLE` i uznaje sprawę za załatwioną. Do zwykłego odtwarzania to rozsądne, ale my przewijamy klatki, więc każdy skok poza bufor stawał się osobnym zapytaniem zakresowym. Na wolnym łączu mobilnym to właśnie powodowało szarpanie.
+
+Gotowy materiał trafia do elementu jako `Blob`, czyli z pamięci — przewijanie nie dotyka już sieci. Zmierzone: trafienie w klatkę z dokładnością do 0,02 s na całej długości.
+
+Ekran powitalny pokazuje postęp w bajtach (uczciwy, bo znamy `content-length`) i **odblokowuje przyciski dopiero po pobraniu**. Po `intro.bypassAfterSeconds` sekundach odblokowuje je mimo wszystko — nikt nie może utknąć na ekranie ładowania.
+
+Przy włączonym oszczędzaniu danych rezygnujemy z pobierania: wideo leci wtedy prosto z sieci, a bramka od razu przepuszcza.
 
 ### Zamrożona klatka
 
