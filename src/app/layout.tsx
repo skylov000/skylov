@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from 'next';
 import { Inter, Space_Grotesk } from 'next/font/google';
+import { Analytics } from '@vercel/analytics/next';
 
 import { AudioPlayer } from '@/components/layout/audio-player';
 import { CustomCursor } from '@/components/layout/custom-cursor';
@@ -134,6 +135,15 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 
         <JsonLd data={organizationSchema()} />
         <JsonLd data={websiteSchema()} />
+
+        {/*
+          Vercel Web Analytics. Poprzednia, statyczna wersja strony
+          wstawiała skrypt `/_vercel/insights` wprost w HTML — przy
+          przejściu na Next.js trzeba do tego komponentu, bo zliczanie
+          odsłon musi obsłużyć nawigację po stronie klienta.
+          Skrypt ładuje się wyłącznie na produkcji.
+        */}
+        <Analytics />
       </body>
     </html>
   );
