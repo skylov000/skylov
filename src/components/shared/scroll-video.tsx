@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { motion, useMotionValueEvent, useScroll, useTransform, type MotionValue } from 'framer-motion';
 
+import { primeHeroVideo, registerHeroVideo } from '@/lib/hero-video';
 import {
   getMediaProgress,
   getServerMediaProgress,
@@ -93,12 +94,6 @@ export function ScrollVideo({
   const [duration, setDuration] = useState(0);
   const [active, setActive] = useState(true);
   const [reduced, setReduced] = useState(false);
-  /**
-   * Ile wideo ściągać z góry. Na desktopie `auto` — pełny bufor daje
-   * najgładsze przewijanie klatek. Na wąskich ekranach i przy włączonym
-   * oszczędzaniu danych `metadata`: przeglądarka dociąga wtedy tylko te
-   * zakresy bajtów, które są potrzebne do aktualnej klatki.
-   */
   /** Adres Blob z pobranym materiałem — dopóki null, wideo nie ma źródła. */
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
   /** Awaryjne odtwarzanie prosto z sieci (oszczędzanie danych albo błąd). */
@@ -292,23 +287,41 @@ export function ScrollVideo({
     return () => observer.disconnect();
   }, []);
 
+  /* Udostępnij element, żeby ekran powitalny mógł go rozgrzać przy kliknięciu. */
+  useEffect(() => {
+    registerHeroVideo(videoRef.current);
+    return () => registerHeroVideo(null);
+  }, []);
+
   /*
-   * iOS nie dekoduje wideo, dopóki nie padnie gest użytkownika. Jedno
-   * play()/pause() przy pierwszym dotknięciu odblokowuje przewijanie klatek.
+   * Rozgrzewanie wideo na iOS.
+   *
+   * Nasłuch **nie** jest jednorazowy i nie odpina się po pierwszej próbie:
+   * dopóki materiał nie ma źródła, `play()` odrzuca obietnicę i gest
+   * przepada. Poprzednia wersja rejestrowała `once: true`, przez co
+   * na telefonie wideo nigdy nie zostawało zdekodowane — przewijanie
+   * dawało czarny ekran zamiast klatek.
    */
   useEffect(() => {
-    const prime = () => {
-      const video = videoRef.current;
-      if (!video) return;
-      video.play().then(() => video.pause()).catch(() => {});
+    if (!blobUrl && !directSrc) return;
+
+    const attempt = () => {
+      void primeHeroVideo().then((ok) => {
+        if (!ok) return;
+        window.removeEventListener('pointerdown', attempt);
+        window.removeEventListener('touchstart', attempt);
+      });
     };
-    window.addEventListener('pointerdown', prime, { once: true });
-    window.addEventListener('touchstart', prime, { once: true });
+
+    attempt(); // gest mógł już paść na ekranie powitalnym
+    window.addEventListener('pointerdown', attempt);
+    window.addEventListener('touchstart', attempt);
+
     return () => {
-      window.removeEventListener('pointerdown', prime);
-      window.removeEventListener('touchstart', prime);
+      window.removeEventListener('pointerdown', attempt);
+      window.removeEventListener('touchstart', attempt);
     };
-  }, []);
+  }, [blobUrl, directSrc]);
 
   /* Pętla dociągająca klatkę do celu. */
   useEffect(() => {
@@ -359,6 +372,21 @@ export function ScrollVideo({
       style={{ height: reduced ? '100svh' : `${heightVh}svh` }}
     >
       <div className="sticky top-0 h-[100svh] w-full overflow-hidden">
+        {/*
+          Warstwa awaryjna pod wideo.
+          Gdyby przeglądarka nie zdołała zdekodować klatki (zdarza się na
+          iOS przy przewijaniu bez odtwarzania), użytkownik zobaczy kadr
+          zamiast czerni. Wchodzi dopiero po pobraniu materiału, więc nie
+          konkuruje o łącze i nie wpływa na LCP.
+        */}
+        {ready && poster && (
+          <div
+            className="absolute inset-0 bg-cover bg-center"
+            style={{ backgroundImage: `url(${poster})` }}
+            aria-hidden="true"
+          />
+        )}
+
         <motion.video
           ref={videoRef}
           // Bez `will-change`: stała warstwa kompozycyjna na wideo w pełnym

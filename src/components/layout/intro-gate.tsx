@@ -8,6 +8,7 @@ import { Headphones, Play, VolumeX } from 'lucide-react';
 import { useAudio } from '@/components/providers/audio-provider';
 import { brand, intro, site } from '@/content/content';
 import { EASE_IN_OUT_EXPO, EASE_OUT_EXPO } from '@/lib/animations';
+import { primeHeroVideo } from '@/lib/hero-video';
 import { startScroll, stopScroll } from '@/lib/lenis';
 import {
   getMediaProgress,
@@ -66,6 +67,13 @@ export function IntroGate() {
   }, [ready]);
 
   const handleEnter = (withSound: boolean) => {
+    /*
+     * Najlepszy moment na rozgrzanie wideo w całej sesji: gest użytkownika
+     * jest pewny, a materiał już pobrany (bramka na to czekała). iOS bez
+     * jednego odtworzenia nie dekoduje klatek i przewijanie daje czarny
+     * ekran — dlatego robimy to tutaj, a nie przy dowolnym dotknięciu.
+     */
+    void primeHeroVideo();
     enter(withSound);
     setVisible(false);
   };
